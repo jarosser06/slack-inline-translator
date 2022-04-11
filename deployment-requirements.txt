@@ -1,0 +1,1 @@
+-e git://github.com/jarosser06/aws-lambda-pypackager@fix_bug#egg=pypackager

@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Slack Translator Bot
+Globals:
+  Function:
+    Timeout: 30
+
+Parameters:
+  ArtifactBucket:
+    Description: Name of Bucket Lambda Artifact is Stored In
+    Type: String
+  ArtifactName:
+    Description: Name of Lambda Artifact
+    Type: String
+  BotOauthToken:
+    Type: String
+    NoEcho: true
+  SlackClientSecret:
+    Type: String
+    NoEcho: true
+  SlackSigningSecret:
+    Type: String
+    NoEcho: true
+  SlackAppID:
+    Type: String
+  Environment:
+    Type: String
+    Default: Development
+    AllowedValues:
+      - Development
+      - Staging
+      - QA
+      - Production
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues:
+      - DEBUG
+      - INFO
+      - WARNING
+      - ERROR
+      - CRITICAL
+
+Resources:
+  ApplicationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ArtifactName
+      Handler: translator.slack_handler
+      Runtime: python3.6
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TranslatorTable
+        - TranslateReadOnly
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TranslatorSNSTopic.TopicName
+      Environment:
+        Variables:
+          BOT_OAUTH_TOKEN: !Ref BotOauthToken
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          SLACK_CLIENT_SECRET: !Ref SlackClientSecret
+          SLACK_APP_ID: !Ref SlackAppID
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: !Ref LogLevel
+          DYNAMODB_TABLE: !Ref TranslatorTable
+          TRANSLATE_SNS_TOPIC: !Ref TranslatorSNSTopic
+      Events:
+        EventPost:
+          Type: Api
+          Properties:
+            Path: /slack
+            Method: post
+  TranslateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ArtifactName
+      Handler: translator.translate
+      Runtime: python3.6
+      Policies:
+        - TranslateReadOnly
+      Environment:
+        Variables:
+          BOT_OAUTH_TOKEN: !Ref BotOauthToken
+          SLACK_CLIENT_SECRET: !Ref SlackClientSecret
+          SLACK_APP_ID: !Ref SlackAppID
+          ENVIRONMENT: !Ref Environment
+          DYNAMODB_TABLE: !Ref TranslatorTable
+          LOG_LEVEL: !Ref LogLevel
+      Events:
+        EventPost:
+          Type: SNS
+          Properties:
+            Topic: !Ref TranslatorSNSTopic
+  TranslatorTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: workspace
+          AttributeType: S
+        - AttributeName: user
+          AttributeType: S
+      KeySchema:
+        - AttributeName: workspace
+          KeyType: HASH
+        - AttributeName: user
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  TranslatorSNSTopic:
+    Type: AWS::SNS::Topic
+
+Outputs:
+  ApiEndpoint:
+    Description: 'API Gateway endpoint URL'
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/"
